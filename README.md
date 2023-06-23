@@ -16,7 +16,7 @@ local handle = signal:Bind(function(params)
 	print(params)
 end)
 
--- Binds callback to the signal that will unbind automatically after first fire, returns connection
+-- Binds callback to the signal, will unbind automatically, returns connection
 signal:Once(function(params)
 	print(params)
 end)
