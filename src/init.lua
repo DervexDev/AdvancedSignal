@@ -9,15 +9,16 @@
 --                                                                                               --
 -- About:                                                                                        --
 --   Advanced Signal lets you choose whether you prefer performance or ease of use.              --
---   Signal is not yieldable by default, so yielding inside one of its bindings will result      --
---   in yielding rest of them. By default, the binding order is not preserved thus connection    --
---   that were made first will be fired last. Behavior of these two things can be changed by     --
---   providing additional arguments to Signal.new() or by changing globally DEFAULT_SETTINGS.    --
+--   Signal is yieldable by default, so yielding inside one of its bindings won't cause any      --
+--   problems but will slightly decrease performance. By default, the binding order is not       --
+--   preserved thus connection that were made first will be fired last. Behavior of these two    --
+--   settings can be changed by providing additional arguments to Signal.new(), by creating      --
+--   config module inside ReplicatedStorage or by changing DEFAULT_SETTINGS.                     --
 --                                                                                               --
 -- API usage:                                                                                    --
 --   local Signal = require(path.to.this.module)                                                 --
 --                                                                                               --
---   local signal = Signal.new()                                                                 --
+--   local signal = Signal.new(false)                                                            --
 --                                                                                               --
 --   local handle = signal:Bind(function(params)                                                 --
 --      print(params)                                                                            --
@@ -39,11 +40,22 @@
 --   Part of this code was written by stravant                                                   --
 ---------------------------------------------------------------------------------------------------
 
--- Change these to override default Advanced Signal settings
-local DEFAULT_SETTINGS = {
-	yieldable = false,
-	keepOrder = false
-}
+local DEFAULT_SETTINGS = {} do
+	DEFAULT_SETTINGS.yieldable = true
+	DEFAULT_SETTINGS.keepOrder = false
+
+	if game.ReplicatedStorage:FindFirstChild('config') then
+		local Config = require(game.ReplicatedStorage.config)
+
+		if Config.AdvancedSignal then
+			for i, v in pairs(Config.AdvancedSignal) do
+				if type(v) == 'boolean' then
+					DEFAULT_SETTINGS[i] = v
+				end
+			end
+		end
+	end
+end
 
 export type Connection = {
 	connected: boolean,
@@ -59,7 +71,7 @@ export type Signal = {
 	connections: {[Connection]: boolean},
 	new: (yieldable: boolean?, keepOrder: boolean?) -> Signal,
 	Bind: (self: Signal, callback: (...any) -> ()) -> Connection,
-	Once: (self: Signal, callback: (...any) -> ()) -> (),
+	Once: (self: Signal, callback: (...any) -> ()) -> Connection,
 	Fire: (self: Signal, ...any) -> (),
 	Unbind: (self: Signal, connection: Connection) -> (),
 	UnbindAll: (self: Signal) -> (),
@@ -87,14 +99,12 @@ local Connection: Connection = {}
 Connection.__index = Connection
 
 -- Creates new connection
-function Connection.new(signal, callback)
-	local self = setmetatable({
+function Connection.new(signal: Signal, callback: (...any) -> ()): Connection
+	return setmetatable({
 		connected = true,
 		signal = signal,
 		callback = callback
 	}, Connection)
-
-	return self
 end
 
 -- Disconnects connection
@@ -107,18 +117,16 @@ local Signal: Signal = {}
 Signal.__index = Signal
 
 -- Creates new signal class with optional settings
-function Signal.new(yieldable, keepOrder)
-	local self = setmetatable({
+function Signal.new(yieldable: boolean, keepOrder: boolean): Signal
+	return setmetatable({
 		yieldable = if type(yieldable) == 'boolean' then yieldable else DEFAULT_SETTINGS.yieldable,
-		keepOrder = if type(yieldable) == 'boolean' then keepOrder else DEFAULT_SETTINGS.keepOrder,
+		keepOrder = if type(keepOrder) == 'boolean' then keepOrder else DEFAULT_SETTINGS.keepOrder,
 		connections = {}
 	}, Signal)
-
-	return self
 end
 
 -- Binds callback to the signal, returns connection
-function Signal:Bind(callback)
+function Signal:Bind(callback: (...any) -> ()): Connection
 	local connection = Connection.new(self, callback)
 
 	self.connections[connection] = true
@@ -137,7 +145,7 @@ function Signal:Bind(callback)
 end
 
 -- Binds callback to the signal that will unbind automatically after first fire, returns connection
-function Signal:Once(callback)
+function Signal:Once(callback: (...any) -> ()): Connection
 	local connection
 
 	connection = Connection.new(self, function(...)
@@ -154,7 +162,7 @@ function Signal:Once(callback)
 end
 
 -- Fires signal with given arguments
-function Signal:Fire(...)
+function Signal:Fire(...: any)
 	for connection in pairs(self.connections) do
 		if self.yieldable then
 			if not freeThread then
@@ -170,7 +178,7 @@ function Signal:Fire(...)
 end
 
 -- Unbinds a connection from the signal
-function Signal:Unbind(connection)
+function Signal:Unbind(connection: Connection)
 	self.connections[connection] = nil
 end
 
@@ -180,7 +188,7 @@ function Signal:UnbindAll()
 end
 
 -- Yields current thread until signal is fired
-function Signal:Wait()
+function Signal:Wait(): ...any
 	local thread = coroutine.running()
 
 	self:Once(function(...)
